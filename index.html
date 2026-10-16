@@ -8,9 +8,10 @@
 </head>
 <body>
 <h1>Brother QL-800 · WebUSB test</h1>
-<p>Read-only USB access test. This page will not send printer commands or print labels.</p>
+<p>USB diagnostic test. The status button sends only a status request (no label raster data).</p>
 <button id="check">1. Check WebUSB support</button>
 <button id="connect">2. Select and test QL-800</button>
+<button id="status">3. Read printer status (no printing)</button>
 <button id="copy">Copy results</button>
 <pre id="log" aria-live="polite">Ready.</pre>
 <p class="hint">Use Chrome on Android over HTTPS. Connect the powered-on printer via USB-C. Select the printer if Chrome offers it.</p>
@@ -52,6 +53,48 @@ document.getElementById('connect').onclick=async()=>{
  }catch(e){error('Configuration or inspection',e)}
  finally{try{await device.close();log('Device closed.')}catch(e){error('Device close',e)}}
  log('Test finished. No data sent to printer.');
+};
+document.getElementById('status').onclick=async()=>{
+ out.textContent='Reading QL-800 status...';
+ if(!window.isSecureContext || !navigator.usb){log('HTTPS and WebUSB required.');return}
+ let device,claimed=false;
+ try{
+   // Permission must be requested from this button click.
+   device=await navigator.usb.requestDevice({filters:[{vendorId:0x04f9,productId:0x209b}]});
+   log('Selected:',device.productName||'QL-800');
+   await device.open();
+   if(!device.configuration)await device.selectConfiguration(1);
+   await device.claimInterface(0);claimed=true;
+   log('Interface 0 claimed.');
+   // Brother raster command: ESC i S = status information request.
+   const command=new Uint8Array([0x1b,0x69,0x53]);
+   const sent=await device.transferOut(2,command);
+   log('Status request sent:',sent.status,'bytes:',sent.bytesWritten);
+   log('Waiting for response on endpoint 1 (up to 5 seconds)...');
+   // Some browsers/firmware may not respond. Do not send print data.
+   const response=await Promise.race([
+     device.transferIn(1,32),
+     new Promise((_,reject)=>setTimeout(()=>reject(new Error('No response within 5 seconds (USB read may still be pending).')),5000))
+   ]);
+   log('Response transfer status:',response.status);
+   if(response.data){
+     const bytes=new Uint8Array(response.data.buffer,response.data.byteOffset,response.data.byteLength);
+     log('Response length:',bytes.length);
+     log('Raw hex:',Array.from(bytes,b=>b.toString(16).padStart(2,'0')).join(' '));
+     if(bytes.length>=13){
+       log('Reported media width byte [10]:',bytes[10],'mm');
+       log('Reported media length byte [11]:',bytes[11],'mm');
+       log('Reported media type byte [12]: 0x'+bytes[12].toString(16).padStart(2,'0'));
+     }
+   }
+ }catch(e){error('Status test',e)}
+ finally{
+   if(device){
+     if(claimed)try{await device.releaseInterface(0);log('Interface released.')}catch(e){error('Release',e)}
+     try{await device.close();log('Device closed.')}catch(e){error('Close',e)}
+   }
+ }
+ log('No label raster data sent.');
 };
 </script>
 </body>
