@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>QL-800 WebUSB Test</title>
+<style>
+:root{color-scheme:dark}body{font-family:system-ui,sans-serif;max-width:650px;margin:auto;padding:22px;background:#101827;color:#f1f5f9}h1{font-size:1.5rem}p{line-height:1.5;color:#cbd5e1}button{display:block;width:100%;margin:12px 0;padding:15px;border:0;border-radius:10px;background:#38bdf8;color:#082f49;font-size:1rem;font-weight:700}button:disabled{opacity:.5}pre{background:#020617;padding:15px;border-radius:10px;white-space:pre-wrap;overflow-wrap:anywhere;min-height:180px;font-size:.85rem}.hint{font-size:.9rem}</style>
+</head>
+<body>
+<h1>Brother QL-800 · WebUSB test</h1>
+<p>Read-only USB access test. This page will not send printer commands or print labels.</p>
+<button id="check">1. Check WebUSB support</button>
+<button id="connect">2. Select and test QL-800</button>
+<button id="copy">Copy results</button>
+<pre id="log" aria-live="polite">Ready.</pre>
+<p class="hint">Use Chrome on Android over HTTPS. Connect the powered-on printer via USB-C. Select the printer if Chrome offers it.</p>
+<script>
+const out=document.getElementById('log');
+const log=(...parts)=>{out.textContent+='\n'+parts.join(' ')};
+const error=(stage,e)=>log(stage+' FAILED:',e.name||'Error','—',e.message||String(e));
+document.getElementById('check').onclick=()=>{
+ out.textContent='Secure context: '+window.isSecureContext+'\nWebUSB available: '+('usb' in navigator)+'\nOrigin: '+location.origin;
+};
+document.getElementById('copy').onclick=async()=>{
+ try{await navigator.clipboard.writeText(out.textContent);log('Results copied.')}catch(e){error('Copy',e)}
+};
+document.getElementById('connect').onclick=async()=>{
+ out.textContent='Starting QL-800 test...';
+ if(!window.isSecureContext){log('ERROR: HTTPS secure context required.');return}
+ if(!navigator.usb){log('ERROR: navigator.usb is unavailable in this browser.');return}
+ let device;
+ try{
+   log('Requesting Brother QL-800 (04F9:209B)...');
+   device=await navigator.usb.requestDevice({filters:[{vendorId:0x04f9,productId:0x209b}]});
+   log('Selected:',device.productName||'(no name)');
+   log('Vendor ID: 0x'+device.vendorId.toString(16).padStart(4,'0'));
+   log('Product ID: 0x'+device.productId.toString(16).padStart(4,'0'));
+ }catch(e){error('Device selection',e);return}
+ try{await device.open();log('Device open: SUCCESS')}catch(e){error('Device open',e);return}
+ try{
+   if(!device.configuration)await device.selectConfiguration(1);
+   log('Configuration:',device.configuration.configurationValue);
+   for(const iface of device.configuration.interfaces){
+     for(const alt of iface.alternates){
+       log('Interface',iface.interfaceNumber,'alternate',alt.alternateSetting,'class',alt.interfaceClass);
+       for(const ep of alt.endpoints)log('  Endpoint',ep.endpointNumber,ep.direction,ep.type);
+     }
+   }
+   try{await device.claimInterface(0);log('CLAIM INTERFACE 0: SUCCESS');
+     await device.releaseInterface(0);log('Interface released.');
+   }catch(e){error('CLAIM INTERFACE 0',e)}
+ }catch(e){error('Configuration or inspection',e)}
+ finally{try{await device.close();log('Device closed.')}catch(e){error('Device close',e)}}
+ log('Test finished. No data sent to printer.');
+};
+</script>
+</body>
+</html>
