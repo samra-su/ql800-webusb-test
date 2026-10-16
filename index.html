@@ -1,101 +1,24 @@
-<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>QL-800 WebUSB Test</title>
-<style>
-:root{color-scheme:dark}body{font-family:system-ui,sans-serif;max-width:650px;margin:auto;padding:22px;background:#101827;color:#f1f5f9}h1{font-size:1.5rem}p{line-height:1.5;color:#cbd5e1}button{display:block;width:100%;margin:12px 0;padding:15px;border:0;border-radius:10px;background:#38bdf8;color:#082f49;font-size:1rem;font-weight:700}button:disabled{opacity:.5}pre{background:#020617;padding:15px;border-radius:10px;white-space:pre-wrap;overflow-wrap:anywhere;min-height:180px;font-size:.85rem}.hint{font-size:.9rem}</style>
-</head>
-<body>
-<h1>Brother QL-800 · WebUSB test</h1>
-<p>USB diagnostic test. The status button sends only a status request (no label raster data).</p>
-<button id="check">1. Check WebUSB support</button>
-<button id="connect">2. Select and test QL-800</button>
-<button id="status">3. Read printer status (no printing)</button>
-<button id="copy">Copy results</button>
-<pre id="log" aria-live="polite">Ready.</pre>
-<p class="hint">Use Chrome on Android over HTTPS. Connect the powered-on printer via USB-C. Select the printer if Chrome offers it.</p>
-<script>
-const out=document.getElementById('log');
-const log=(...parts)=>{out.textContent+='\n'+parts.join(' ')};
-const error=(stage,e)=>log(stage+' FAILED:',e.name||'Error','—',e.message||String(e));
-document.getElementById('check').onclick=()=>{
- out.textContent='Secure context: '+window.isSecureContext+'\nWebUSB available: '+('usb' in navigator)+'\nOrigin: '+location.origin;
-};
-document.getElementById('copy').onclick=async()=>{
- try{await navigator.clipboard.writeText(out.textContent);log('Results copied.')}catch(e){error('Copy',e)}
-};
-document.getElementById('connect').onclick=async()=>{
- out.textContent='Starting QL-800 test...';
- if(!window.isSecureContext){log('ERROR: HTTPS secure context required.');return}
- if(!navigator.usb){log('ERROR: navigator.usb is unavailable in this browser.');return}
- let device;
- try{
-   log('Requesting Brother QL-800 (04F9:209B)...');
-   device=await navigator.usb.requestDevice({filters:[{vendorId:0x04f9,productId:0x209b}]});
-   log('Selected:',device.productName||'(no name)');
-   log('Vendor ID: 0x'+device.vendorId.toString(16).padStart(4,'0'));
-   log('Product ID: 0x'+device.productId.toString(16).padStart(4,'0'));
- }catch(e){error('Device selection',e);return}
- try{await device.open();log('Device open: SUCCESS')}catch(e){error('Device open',e);return}
- try{
-   if(!device.configuration)await device.selectConfiguration(1);
-   log('Configuration:',device.configuration.configurationValue);
-   for(const iface of device.configuration.interfaces){
-     for(const alt of iface.alternates){
-       log('Interface',iface.interfaceNumber,'alternate',alt.alternateSetting,'class',alt.interfaceClass);
-       for(const ep of alt.endpoints)log('  Endpoint',ep.endpointNumber,ep.direction,ep.type);
-     }
-   }
-   try{await device.claimInterface(0);log('CLAIM INTERFACE 0: SUCCESS');
-     await device.releaseInterface(0);log('Interface released.');
-   }catch(e){error('CLAIM INTERFACE 0',e)}
- }catch(e){error('Configuration or inspection',e)}
- finally{try{await device.close();log('Device closed.')}catch(e){error('Device close',e)}}
- log('Test finished. No data sent to printer.');
-};
-document.getElementById('status').onclick=async()=>{
- out.textContent='Reading QL-800 status...';
- if(!window.isSecureContext || !navigator.usb){log('HTTPS and WebUSB required.');return}
- let device,claimed=false;
- try{
-   // Permission must be requested from this button click.
-   device=await navigator.usb.requestDevice({filters:[{vendorId:0x04f9,productId:0x209b}]});
-   log('Selected:',device.productName||'QL-800');
-   await device.open();
-   if(!device.configuration)await device.selectConfiguration(1);
-   await device.claimInterface(0);claimed=true;
-   log('Interface 0 claimed.');
-   // Brother raster command: ESC i S = status information request.
-   const command=new Uint8Array([0x1b,0x69,0x53]);
-   const sent=await device.transferOut(2,command);
-   log('Status request sent:',sent.status,'bytes:',sent.bytesWritten);
-   log('Waiting for response on endpoint 1 (up to 5 seconds)...');
-   // Some browsers/firmware may not respond. Do not send print data.
-   const response=await Promise.race([
-     device.transferIn(1,32),
-     new Promise((_,reject)=>setTimeout(()=>reject(new Error('No response within 5 seconds (USB read may still be pending).')),5000))
-   ]);
-   log('Response transfer status:',response.status);
-   if(response.data){
-     const bytes=new Uint8Array(response.data.buffer,response.data.byteOffset,response.data.byteLength);
-     log('Response length:',bytes.length);
-     log('Raw hex:',Array.from(bytes,b=>b.toString(16).padStart(2,'0')).join(' '));
-     if(bytes.length>=13){
-       log('Reported media width byte [10]:',bytes[10],'mm');
-       log('Reported media length byte [11]:',bytes[11],'mm');
-       log('Reported media type byte [12]: 0x'+bytes[12].toString(16).padStart(2,'0'));
-     }
-   }
- }catch(e){error('Status test',e)}
- finally{
-   if(device){
-     if(claimed)try{await device.releaseInterface(0);log('Interface released.')}catch(e){error('Release',e)}
-     try{await device.close();log('Device closed.')}catch(e){error('Close',e)}
-   }
- }
- log('No label raster data sent.');
-};
-</script>
-</body>
-</html>
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>QL-800 WebUSB Print Test</title><style>body{font:16px system-ui;background:#101827;color:#edf2fa;max-width:700px;margin:auto;padding:20px}button{width:100%;padding:15px;margin:8px 0;background:#38bdf8;border:0;border-radius:9px;font-weight:700;font-size:16px}button:disabled{opacity:.45}canvas{width:100%;background:white;border-radius:8px}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#020617;padding:14px;border-radius:8px;font-size:13px}p{color:#cbd5e1}label{display:block;margin:14px 0}</style></head><body><h2>Brother QL-800 · WebUSB print test</h2><p>Standalone test for DK-11226, 52 × 29 mm die-cut labels. Preview first; pressing Print sends ONE physical label. No Warehouse code is involved.</p><button id="check">1. Check WebUSB</button><button id="status">2. Read printer status (no printing)</button><button id="preview">3. Refresh label preview</button><canvas id="label" width="578" height="271"></canvas><label><input type="checkbox" id="confirm"> I have checked the preview and want to print one test label.</label><button id="print" disabled>4. Print ONE test label</button><button id="copy">Copy diagnostic log</button><pre id="log">Ready.</pre><p>Leave the printer powered on and connect it directly to your Android phone by USB-C. Use Chrome on this HTTPS page.</p><script>
+'use strict';
+const $=id=>document.getElementById(id),log=(...x)=>{$('log').textContent+='\n'+x.join(' ')},hex=a=>Array.from(a,b=>b.toString(16).padStart(2,'0')).join(' ');
+let busy=false;
+function preview(){const c=$('label'),g=c.getContext('2d');g.fillStyle='#fff';g.fillRect(0,0,c.width,c.height);g.fillStyle='#000';g.strokeStyle='#000';g.lineWidth=5;g.strokeRect(15,15,548,241);g.textAlign='center';g.font='bold 58px sans-serif';g.fillText('WEBUSB TEST',289,100);g.font='bold 37px sans-serif';g.fillText('uBitWarehouse',289,158);g.font='27px sans-serif';g.fillText('Brother QL-800',289,207);log('Preview updated: 578 × 271 printable pixels.');}
+preview();
+$('confirm').onchange=()=>{$('print').disabled=!$('confirm').checked||busy};
+$('preview').onclick=preview;
+$('check').onclick=()=>{$('log').textContent=`Secure context: ${isSecureContext}\nWebUSB available: ${!!navigator.usb}\nOrigin: ${location.origin}`};
+$('copy').onclick=async()=>{try{await navigator.clipboard.writeText($('log').textContent);log('Copied.')}catch(e){log('Copy error:',e.message)}};
+async function usbOpen(){if(!isSecureContext||!navigator.usb)throw Error('WebUSB unavailable or page not HTTPS');const d=await navigator.usb.requestDevice({filters:[{vendorId:0x04f9,productId:0x209b}]});log('Selected:',d.productName,'VID:',d.vendorId,'PID:',d.productId);await d.open();if(!d.configuration)await d.selectConfiguration(1);const iface=d.configuration.interfaces.find(i=>i.interfaceNumber===0);if(!iface||!iface.alternates.some(a=>a.endpoints.some(e=>e.endpointNumber===2&&e.direction==='out'&&e.type==='bulk')))throw Error('Expected USB bulk OUT endpoint 2 unavailable');await d.claimInterface(0);log('Interface 0 claimed.');return d}
+async function send(d,bytes){const a=bytes instanceof Uint8Array?bytes:new Uint8Array(bytes);const r=await d.transferOut(2,a);if(r.status!=='ok'||r.bytesWritten!==a.length)throw Error(`USB OUT failed: ${r.status} ${r.bytesWritten}/${a.length}`)}
+async function read(d){const r=await d.transferIn(1,32);if(r.status!=='ok'||!r.data||r.data.byteLength!==32)throw Error('Invalid USB IN response');return new Uint8Array(r.data.buffer,r.data.byteOffset,r.data.byteLength).slice()}
+function inspect(s){log('Status:',hex(s));if(s[0]!==0x80||s[1]!==0x20)throw Error('Invalid QL status header');log(`Media width ${s[10]} mm; media type 0x${s[11].toString(16)}; media length ${s[17]} mm; errors ${s[8]}/${s[9]}; status type ${s[18]}`);if(s[8]||s[9])throw Error('Printer reports an error; printing cancelled');if(s[10]!==52||s[17]!==29)throw Error('Not 52 × 29 mm media; printing cancelled');if(s[11]!==0x0b&&s[11]!==0x4b)throw Error('Media is not reported as die-cut; printing cancelled')}
+async function statusRequest(d){await send(d,[0x1b,0x69,0x53]);return await read(d)}
+async function run(fn){if(busy)return;busy=true;$('print').disabled=true;$('status').disabled=true;let d;try{d=await usbOpen();await fn(d)}catch(e){log('ERROR:',e.name||'Error',e.message||String(e))}finally{if(d){try{if(d.opened){await d.releaseInterface(0);await d.close()}log('USB connection closed.')}catch(e){log('Cleanup warning:',e.message)}}busy=false;$('status').disabled=false;$('print').disabled=!$('confirm').checked}}
+$('status').onclick=()=>{ $('log').textContent='Reading status...';run(async d=>{inspect(await statusRequest(d));log('Status read successful. No label printed.')})};
+// Canvas coordinates: x is across printhead, y is feed direction. Each raster line
+// is 720 pins: 142 left blank pins followed by 578 printable pins (Brother manual).
+function raster(){const c=$('label'),g=c.getContext('2d'),pixels=g.getImageData(0,0,578,271).data;const rows=341,head=720,left=142,bytes=new Uint8Array(rows*93);for(let y=0;y<rows;y++){const start=y*93;bytes[start]=0x67;bytes[start+1]=0;bytes[start+2]=90;for(let x=0;x<578;x++){// center the 271 printable feed pixels within 341 total feed raster lines
+const py=y-35;if(py<0||py>=271)continue;const p=(py*578+x)*4;const gray=(pixels[p]*299+pixels[p+1]*587+pixels[p+2]*114)/1000;if(gray<128){const pin=left+x;bytes[start+3+(pin>>3)]|=0x80>>(pin&7)}}}return bytes}
+async function printOne(d){log('Checking media and errors...');inspect(await statusRequest(d));log('Sending Brother raster print job (one label)...');const rows=341;const init=new Uint8Array(400+2+4+4+13+4+4+4+5+2);let p=400;const add=a=>{init.set(a,p);p+=a.length};add([0x1b,0x40]);add([0x1b,0x69,0x61,0x01]);add([0x1b,0x69,0x21,0x00]);add([0x1b,0x69,0x7a,0x8e,0x0b,52,29,rows&255,(rows>>8)&255,0,0,0,0]);add([0x1b,0x69,0x4d,0x40]);add([0x1b,0x69,0x41,0x01]);add([0x1b,0x69,0x4b,0x08]);add([0x1b,0x69,0x64,0,0]);add([0x4d,0]);if(p!==init.length)throw Error('Internal initialization length mismatch');await send(d,init);log('Initialization sent.');const data=raster();for(let i=0;i<data.length;i+=4092){await send(d,data.subarray(i,Math.min(i+4092,data.length)))}log('Raster sent:',data.length,'bytes.');await send(d,[0x1a]);log('Print command sent. Waiting for printer notifications...');let done=false;for(let i=0;i<8;i++){const s=await read(d);log('Notification',i+1,'type:',s[18],'errors:',s[8],s[9]);if(s[8]||s[9])throw Error('Printer reported error after print data');if(s[18]===1){done=true;break}}log(done?'Printer reported PRINTING COMPLETED.':'No completion confirmation in first 8 status messages; check printer physically.');}
+$('print').onclick=()=>{if(!$('confirm').checked)return;$('log').textContent='Print test starting...';run(printOne)};
+</script></body></html>
